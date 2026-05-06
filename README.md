@@ -21,6 +21,7 @@ ZED Camera / SVO Files → YOLO Detection → `/yolo_detections` → Downstream 
 **Primary Output:**  
 - `/yolo_detections` → `vision_msgs/Detection2DArray`  
 - `/yolo_annotated` → Annotated images with bounding boxes  
+- `/yolo_detections_with_depth` → Detections fused with ZED depth data  
 - Bounding boxes, class IDs, confidence scores  
 
 ---
@@ -46,15 +47,19 @@ ZED Camera / SVO Files → YOLO Detection → `/yolo_detections` → Downstream 
       │   ZED Camera   │
       │  or SVO File   │
       └───────┬────────┘
-              │  /camera/rgb/image
+              │  /zed/zed_node/rgb/image_rect_color
+              │  /zed/zed_node/depth/depth_registered
               │
       ┌───────▼──────────────────────┐
       │      YOLO Detector Node       │
       │   (YOLOv8 + ROS2 Jazzy)       │
+      │   confidence threshold: 0.45  │
+      │   target: person, car,        │
+      │   traffic light, stop sign    │
       └───────┬──────────────────────┘
               │  publishes:
               │  /yolo_detections
-              │  (Detection2DArray)
+              │  /yolo_detections_with_depth
               │  /yolo_annotated
               │
    ┌──────────▼─────────────┐
@@ -82,19 +87,70 @@ ZED Camera / SVO Files → YOLO Detection → `/yolo_detections` → Downstream 
 
 ---
 
-##  For Teammates: Quick Start with Recorded Data
+## What's New — Spring 2026
+
+- **Live ZED Camera Integration** — detector node now subscribes directly to `/zed/zed_node/rgb/image_rect_color` for real-time detection
+- **Depth Fusion** — bounding boxes are matched with ZED depth values to estimate object distance in meters
+- **Tunable Config** — confidence threshold, NMS, target classes, and depth range configurable via `config/detector_params.yaml`
+- **Class Filtering** — detection limited to relevant classes: person, car, traffic light, stop sign
+- **ROS 2 Launch File** — single command to launch the full vision pipeline with the ZED camera
+- **Performance Logging** — latency and detection count logged every 30 frames
+
+---
+
+## Quick Start — Live ZED Camera
+
+### Requirements
+- Ubuntu 24.04 with ROS 2 Jazzy
+- ZED SDK installed
+- ZED2 or ZED2i camera connected via USB 3.0
+
+### Step 1: Clone Repository
+~~~~bash
+git clone https://github.com/amirgshabo/watcher_vision.git
+cd watcher_vision
+~~~~
+
+### Step 2: Build the Package
+~~~~bash
+cd ros2_jazzy_ws
+colcon build --packages-select arcs_yolo_detector
+source install/setup.bash
+~~~~
+
+### Step 3: Launch with ZED Camera
+
+*Terminal 1 — Start ZED Camera:*
+~~~~bash
+ros2 launch zed_wrapper zed2.launch.py
+~~~~
+
+*Terminal 2 — Start YOLO Detector:*
+~~~~bash
+ros2 launch arcs_yolo_detector detector_launch.py
+~~~~
+
+*Terminal 3 — Verify Output:*
+~~~~bash
+ros2 topic echo /yolo_detections
+ros2 topic echo /yolo_detections_with_depth
+~~~~
+
+---
+
+## Quick Start — Recorded Data (Rosbag)
 
 **No ZED camera or Jetson needed!** Use our pre-recorded rosbag dataset.
 
 ### Step 1: Clone Repository
 ~~~~bash
-git clone https://github.com/amirgshabo/watcher_object_detection.git
-cd watcher_object_detection
+git clone https://github.com/amirgshabo/watcher_vision.git
+cd watcher_vision
 ~~~~
 
 ### Step 2: Download Rosbag Dataset
 
-** Download Link:** [Street Detections Dataset (Google Drive)](https://drive.google.com/file/d/19ERBubKotWDy918HaFgf6tWvkFrFF3Xq/view?usp=sharing)
+**Download Link:** [Street Detections Dataset (Google Drive)](https://drive.google.com/file/d/19ERBubKotWDy918HaFgf6tWvkFrFF3Xq/view?usp=sharing)
 
 **Dataset includes:**
 - 26 seconds of HD street scenes (1920x1080)
@@ -103,11 +159,8 @@ cd watcher_object_detection
 - 116 annotated visualizations
 - File size: ~2 GB (compressed)
 
-For more details, see [ros2_jazzy_ws/rosbags/README.md](ros2_jazzy_ws/rosbags/README.md)
-
 ### Step 3: Extract Rosbag
 ~~~~bash
-# After downloading street_detections.zip
 unzip street_detections.zip
 mv street_detections ros2_jazzy_ws/rosbags/
 ~~~~
@@ -117,17 +170,33 @@ mv street_detections ros2_jazzy_ws/rosbags/
 ros2 bag play ros2_jazzy_ws/rosbags/street_detections --loop
 ~~~~
 
-### Step 5: Subscribe to Topics
+### Step 5: Launch Detector in Rosbag Mode
 ~~~~bash
-# In another terminal - View detections
+ros2 launch arcs_yolo_detector detector_launch.py use_sim_time:=true input_topic:=/camera/rgb/image
+~~~~
+
+### Step 6: Subscribe to Topics
+~~~~bash
 ros2 topic echo /yolo_detections
-
-# View raw images
 ros2 topic echo /camera/rgb/image
-
-# View annotated images (with bounding boxes)
 ros2 topic echo /yolo_annotated
 ~~~~
+
+---
+
+## Configuration
+
+All parameters tunable via `ros2_jazzy_ws/src/arcs_yolo_detector/config/detector_params.yaml`:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `model_path` | yolov8n.pt | YOLO model weights file |
+| `confidence_threshold` | 0.45 | Minimum detection confidence |
+| `nms_threshold` | 0.50 | Non-maximum suppression threshold |
+| `input_topic` | /zed/zed_node/rgb/image_rect_color | RGB image input topic |
+| `depth_topic` | /zed/zed_node/depth/depth_registered | ZED depth topic |
+| `target_classes` | [0, 2, 9, 11] | COCO class IDs to detect |
+| `max_depth_range` | 10.0 | Max depth range in meters |
 
 ---
 
@@ -137,6 +206,7 @@ ros2 topic echo /yolo_annotated
 |-------|------|-------------|
 | `/camera/rgb/image` | sensor_msgs/Image | Raw RGB camera frames |
 | `/yolo_detections` | vision_msgs/Detection2DArray | Object detections (bbox, class, score) |
+| `/yolo_detections_with_depth` | vision_msgs/Detection2DArray | Detections with depth in meters |
 | `/yolo_annotated` | sensor_msgs/Image | Annotated images with bounding boxes |
 
 ---
@@ -144,7 +214,7 @@ ros2 topic echo /yolo_annotated
 ## Requirements
 
 ### For Using Recorded Data (All Teams)
-- Ubuntu 24.04 with ROS2 Jazzy
+- Ubuntu 24.04 with ROS 2 Jazzy
 - ~4 GB disk space for rosbag
 - No special hardware needed!
 
@@ -155,11 +225,9 @@ ros2 topic echo /yolo_annotated
 
 ---
 
-##  Vision Team Development Guide
+## Vision Team Development Guide
 
 ### A. Practice at Home (Recommended Starting Point)
-
-Develop and test the pipeline using SVO recordings—no physical hardware required.
 
 #### Windows Setup
 
@@ -170,8 +238,8 @@ Develop and test the pipeline using SVO recordings—no physical hardware requir
 
 **Step 1: Clone Repository**
 ~~~~bash
-git clone https://github.com/amirgshabo/watcher_object_detection.git
-cd watcher_object_detection
+git clone https://github.com/amirgshabo/watcher_vision.git
+cd watcher_vision
 git config core.autocrlf false
 git rm --cached -r .
 git reset --hard
@@ -195,11 +263,9 @@ sed -i 's/\r$//' /ros2_ws/start.sh
 chmod +x /ros2_ws/start.sh
 /ros2_ws/start.sh
 
-# Install YOLO
 pip3 install ultralytics --break-system-packages
 pip3 install "numpy<2" --break-system-packages
 
-# Build packages
 colcon build --packages-select arcs_yolo_test arcs_yolo_detector
 source install/setup.bash
 ~~~~
@@ -234,19 +300,10 @@ ros2 bag record \
   -o /ros2_ws/rosbags/my_recording
 ~~~~
 
-Let it record for 30-60 seconds, then press `Ctrl+C`.
-
----
-
 #### Linux / Mac Setup
-
-Same steps as Windows, but use these commands:
-
 ~~~~bash
-# Step 3: Start Container
 docker run -it --rm -v $(pwd):/ros2_ws --name arcs_dev arcs_jazzy_ready bash
 
-# Step 4: No need for sed command, just:
 /ros2_ws/start.sh
 pip3 install ultralytics --break-system-packages
 pip3 install "numpy<2" --break-system-packages
@@ -262,17 +319,17 @@ source install/setup.bash
 - NVIDIA Jetson with ZED SDK installed
 - ZED2 or ZED2i camera connected via USB 3.0
 
-**Terminal 1 - ZED Camera:**
+*Terminal 1 - ZED Camera:*
 ~~~~bash
 ros2 launch zed_wrapper zed2.launch.py
 ~~~~
 
-**Terminal 2 - YOLO Detector:**
+*Terminal 2 - YOLO Detector:*
 ~~~~bash
-ros2 run arcs_yolo_detector yolo_detector --ros-args -p input_topic:=/zed/zed_node/rgb/image_rect_color
+ros2 launch arcs_yolo_detector detector_launch.py
 ~~~~
 
-**Terminal 3 - Monitor:**
+*Terminal 3 - Monitor:*
 ~~~~bash
 ros2 topic echo /yolo_detections
 ~~~~
@@ -280,8 +337,6 @@ ros2 topic echo /yolo_detections
 ---
 
 ## Troubleshooting
-
-### Common Issues
 
 **"numpy version conflict" or segmentation fault:**
 ~~~~bash
@@ -299,7 +354,7 @@ chmod +x /ros2_ws/start.sh
 - Ensure Docker Desktop is running
 
 **YOLO detector crashes after ~270 frames:**
-- This is a known issue with numpy compatibility
+- Known numpy compatibility issue
 - Record rosbags quickly (15-30 seconds) before crash
 - Or restart the detector and continue
 
@@ -312,17 +367,24 @@ chmod +x /ros2_ws/start.sh
 ## Repository Structure
 
 ~~~~
-watcher_object_detection/
+watcher_vision/
 ├── docker/
 │   └── jazzy-dev.Dockerfile
 ├── ros2_jazzy_ws/
 │   ├── src/
-│   │   ├── arcs_yolo_detector/      # YOLO detection node
-│   │   └── arcs_yolo_test/          # SVO publisher & test nodes
-│   ├── rosbags/                     # Recorded datasets
-│   │   └── README.md                # Download instructions
-│   ├── test_data/                   # SVO files for testing
-│   └── start.sh                     # Environment setup script
+│   │   ├── arcs_yolo_detector/
+│   │   │   ├── arcs_yolo_detector/
+│   │   │   │   ├── yolo_detector_node.py
+│   │   │   │   └── __init__.py
+│   │   │   ├── config/
+│   │   │   │   └── detector_params.yaml
+│   │   │   ├── launch/
+│   │   │   │   └── detector_launch.py
+│   │   │   ├── package.xml
+│   │   │   └── setup.py
+│   │   └── arcs_yolo_test/
+│   ├── rosbags/
+│   └── start.sh
 ├── .gitignore
 └── README.md
 ~~~~
@@ -331,7 +393,7 @@ watcher_object_detection/
 
 ## Contributing
 
-**Vision Team Workflow:**
+**Team Workflow:**
 1. Create feature branch: `git checkout -b feature/your-feature`
 2. Make changes and test locally
 3. Record demo rosbag if applicable
@@ -348,11 +410,11 @@ watcher_object_detection/
 **Organization:** CSUN ARCS  
 **Vision Team Lead:** Amir Shabo  
 
-**Repository:** https://github.com/amirgshabo/watcher_object_detection  
+**Repository:** https://github.com/amirgshabo/watcher_vision  
 **Dataset:** [Download from Google Drive](https://drive.google.com/file/d/19ERBubKotWDy918HaFgf6tWvkFrFF3Xq/view?usp=sharing)
 
 ---
 
 ## License
 
-This project is part of the ARCS WATCHER senior design project.
+This project is part of the ARCS WATCHER senior design project at CSUN.
