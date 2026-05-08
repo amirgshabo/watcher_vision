@@ -1,0 +1,68 @@
+# Build directory - contains compiled binaries
+build/
+
+# Output directory - contains generated results
+output/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Data files (add specific extensions if needed)
+*.vso
+*.avi
+
+# Large model files
+*.onnx
+*.pt
+*.weights
+
+# Compiled Object files
+*.o
+*.obj
+
+# Executables
+*.exe
+*.out
+depth_tester
+
+# Libraries
+*.a
+*.lib
+*.so
+*.dylib
+
+# CMake files
+CMakeFiles/
+cmake_install.cmake
+CMakeCache.txt
+Makefile
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
